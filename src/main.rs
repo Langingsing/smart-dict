@@ -55,11 +55,11 @@ impl Data {
 
 async fn statistic(dict_name: &str) -> Data {
   let filename = format!("{dict_name}.{DICT_EXT}");
-  let path = CUSTOM_DIR.join(filename);
+  let path = CUSTOM_DIR.join(&filename);
   let data = BufReader::new(File::open(&path).await.unwrap())
     .lines()
     .filter_map(|line| async {
-      let line = line.unwrap();
+      let line = line.expect(&format!("can't read from {}", &filename));
       line.split_once('\t').map(|(word, code)| {
         (word.len(), code.len())
       })
