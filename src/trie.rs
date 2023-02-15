@@ -2,9 +2,7 @@ use std::collections::hash_map::{Keys, Values, ValuesMut};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::ptr::NonNull;
-
-type Word = String;
-type Code = String;
+use crate::types::{Code, Word};
 
 #[derive(Default)]
 pub struct Trie<'a> {
