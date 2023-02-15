@@ -63,7 +63,7 @@ pub struct Trie {
   links: HashMap<Code, Self>,
 }
 
-impl<'a> Trie {
+impl Trie {
   pub fn new(code: Code) -> Self {
     Self {
       code,
@@ -104,7 +104,7 @@ impl<'a> Trie {
   }
 }
 
-impl<'a> Trie {
+impl Trie {
   fn poll(&self, code: &mut CodeCursor) -> usize {
     let mut matched = 0;
     while let Some(&ch) = self.code.as_bytes().get(matched) {
@@ -151,7 +151,7 @@ impl<'a> Trie {
         // regard node as the new parent and construct a new child
         let child_code = node.code[matched..].to_string();
         let node = unsafe { node.shrink_code(matched) };
-        let mut new_node = Self {
+        let new_node = Self {
           code: child_code.clone(),
           words: mem::replace(&mut node.words, vec![word]),
           links: mem::take(&mut node.links),
@@ -182,8 +182,8 @@ impl<'a> Trie {
     }
   }
 
-  fn try_best_to_match(&mut self, code: &mut CodeCursor) -> (&'a mut Self, usize) {
-    let mut matched = 0;
+  fn try_best_to_match(&mut self, code: &mut CodeCursor) -> (&mut Self, usize) {
+    let mut matched;
     let mut node_ptr = NonNull::from(self);
 
     loop {
@@ -212,6 +212,19 @@ impl<'a> Trie {
 
   fn find_a_child_starts_with(&self, ch: char) -> Option<&'_ Self> {
     self.children().find(|child| child.code.starts_with(ch))
+  }
+}
+
+#[cfg(test)]
+impl Trie {
+  fn check_links(&self) -> Result<(), &Self> {
+    for child in self.children() {
+      if child.parent().unwrap() as * const _ != self as * const _ {
+        return Err(self);
+      }
+      child.check_links()?;
+    }
+    Ok(())
   }
 }
 
@@ -328,5 +341,7 @@ mod test {
     assert_eq!(vec!["哪里".to_string()], descendant.words);
     assert_eq!(child as *const _, descendant.parent().unwrap() as *const _);
     assert_eq!(0, descendant.children().count());
+
+    assert!(root.check_links().is_ok());
   }
 }
