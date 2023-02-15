@@ -1,6 +1,7 @@
 use std::collections::hash_map::{Keys, Values, ValuesMut};
 use std::collections::HashMap;
 use std::io::Cursor;
+use std::mem;
 use std::ops::{AddAssign, Index};
 use std::ptr::NonNull;
 use crate::types::{Code, Word};
@@ -55,27 +56,34 @@ impl Index<usize> for CodeCursor {
 }
 
 #[derive(Default)]
-pub struct Trie<'a> {
+pub struct Trie {
   code: Code,
   words: Vec<Word>,
-  parent: Option<&'a Trie<'a>>,
-  links: HashMap<Code, Trie<'a>>,
+  parent: Option<NonNull<Self>>,
+  links: HashMap<Code, Self>,
 }
 
-impl<'a> Trie<'a> {
-  pub fn new() -> Self {
-    Self::default()
+impl<'a> Trie {
+  pub fn new(code: Code) -> Self {
+    Self {
+      code,
+      ..Default::default()
+    }
   }
 
-  pub fn parent(&self) -> Option<&Trie<'_>> {
-    self.parent
+  pub fn parent(&self) -> Option<&Self> {
+    self.parent.map(|p| unsafe { p.as_ref() })
   }
 
-  pub fn children(&self) -> Values<'_, Code, Trie<'_>> {
+  fn parent_mut(&self) -> Option<&mut Self> {
+    self.parent.map(|mut p| unsafe { p.as_mut() })
+  }
+
+  pub fn children(&self) -> Values<'_, Code, Self> {
     self.links.values()
   }
 
-  pub fn edges(&self) -> Keys<'_, Code, Trie<'_>> {
+  pub fn edges(&self) -> Keys<'_, Code, Self> {
     self.links.keys()
   }
 
@@ -83,16 +91,20 @@ impl<'a> Trie<'a> {
     Nodes::new(self)
   }
 
-  fn set_link(&mut self, child: Trie<'a>) -> Option<Trie<'_>> {
+  fn set_link(&mut self, child: Self) -> Option<Self> {
     self.links.insert(child.code.clone(), child)
   }
 
-  fn children_mut(&mut self) -> ValuesMut<'_, Code, Trie<'a>> {
+  fn del_link(&mut self, key: &Code) -> Option<Self> {
+    self.links.remove(key)
+  }
+
+  fn children_mut(&mut self) -> ValuesMut<'_, Code, Self> {
     self.links.values_mut()
   }
 }
 
-impl<'a> Trie<'a> {
+impl<'a> Trie {
   fn poll(&self, code: &mut CodeCursor) -> usize {
     let mut matched = 0;
     while let Some(&ch) = self.code.as_bytes().get(matched) {
@@ -105,40 +117,106 @@ impl<'a> Trie<'a> {
     matched
   }
 
-  pub fn insert(&mut self, mut node: Trie<'a>) {
-    todo!();
+  /// SAFETY:
+  /// This function returns a temporary reference to a trie node owned by parent.links,
+  /// use it only when parent.links won't be moved or reallocated.
+  /// `self as * const _ == self.shrink_code(new_len) as * const _` is not guaranteed to be true.
+  unsafe fn shrink_code(&mut self, new_len: usize) -> &mut Self {
+    debug_assert!(new_len < self.code.len());
+
+    if let Some(parent) = self.parent_mut() {
+      let mut this = parent.del_link(&self.code).unwrap();
+
+      this.code.truncate(new_len);
+      this.code.shrink_to_fit();
+      let new_code = this.code.clone();
+
+      parent.set_link(this);
+
+      mem::transmute(parent.links.get_mut(&new_code).unwrap())
+    } else {
+      self.code.truncate(new_len);
+      self.code.shrink_to_fit();
+      self
+    }
   }
 
-  fn try_best_to_match(&mut self, code: &mut CodeCursor) -> (&'a mut Trie<'a>, usize) {
-    let mut node_ptr = NonNull::from(self);
-    let matched = 0;
+  pub fn insert(&mut self, code: Code, word: Word) {
+    let mut code = CodeCursor::new(code);
+    let (node, matched) = self.try_best_to_match(&mut code);
+    if code.is_empty() {
+      if matched == node.code.len() {
+        node.words.push(word)
+      } else {
+        // regard node as the new parent and construct a new child
+        let child_code = node.code[matched..].to_string();
+        let node = unsafe { node.shrink_code(matched) };
+        let mut new_node = Self {
+          code: child_code.clone(),
+          words: mem::replace(&mut node.words, vec![word]),
+          links: mem::take(&mut node.links),
+          parent: None,
+        };
+        node.set_link(new_node);
+        let new_node: &mut Self = unsafe { mem::transmute(node.links.get_mut(&child_code).unwrap()) };
+        new_node.parent = Some(NonNull::from(node));
 
-    while !code.is_empty() {
-      let ch = code[0] as char;
+        let p_new_node = unsafe { NonNull::new_unchecked(new_node) };
+        for child in new_node.children_mut() {
+          child.parent.replace(p_new_node);
+        }
+      }
+    } else {
+      let code = code.into_remained();
+      if matched == node.code.len() {
+        let p_node = unsafe { NonNull::new_unchecked(node) };
+        node.set_link(Self {
+          code,
+          words: vec![word],
+          parent: Some(p_node),
+          ..Default::default()
+        });
+      } else {
+        todo!()
+      }
+    }
+  }
+
+  fn try_best_to_match(&mut self, code: &mut CodeCursor) -> (&'a mut Self, usize) {
+    let mut matched = 0;
+    let mut node_ptr = NonNull::from(self);
+
+    loop {
       let node = unsafe { node_ptr.as_ref() };
-      let option = node
-        .children()
-        .find(|child| child.code.starts_with(ch));
+      matched = node.poll(code);
+
+      if code.is_empty() || matched < node.code.len() {
+        break;
+      }
+
+      let ch = code[0] as char;
+      let option = node.links.get(&String::from(ch))
+        .or(node
+          .children()
+          .find(|child| child.code.starts_with(ch)));
 
       if let Some(child) = option {
         node_ptr = NonNull::from(child);
       } else {
         break;
       }
-
-      node.poll(code);
     }
 
     unsafe { (node_ptr.as_mut(), matched) }
   }
 
-  fn find_a_child_starts_with(&self, ch: char) -> Option<&'_ Trie<'_>> {
+  fn find_a_child_starts_with(&self, ch: char) -> Option<&'_ Self> {
     self.children().find(|child| child.code.starts_with(ch))
   }
 }
 
 pub struct Nodes<'a> {
-  stack: Vec<&'a Trie<'a>>,
+  stack: Vec<&'a Trie>,
 }
 
 impl<'a> Nodes<'a> {
@@ -150,7 +228,7 @@ impl<'a> Nodes<'a> {
 }
 
 impl<'a> Iterator for Nodes<'a> {
-  type Item = &'a Trie<'a>;
+  type Item = &'a Trie;
 
   fn next(&mut self) -> Option<Self::Item> {
     self.stack
@@ -175,7 +253,7 @@ mod test {
     let mut code = CodeCursor::new("niao".to_string());
     let matched = trie.poll(&mut code);
     assert_eq!(trie.code.len(), matched);
-    assert_eq!("ao".to_string(), code.into_remained());
+    assert_eq!("ao", code.into_remained());
   }
 
   #[test]
@@ -199,6 +277,56 @@ mod test {
     let mut code = CodeCursor::new("nie".to_string());
     let matched = trie.poll(&mut code);
     assert_eq!(2, matched);
-    assert_eq!("e".to_string(), code.into_remained());
+    assert_eq!("e", code.into_remained());
+  }
+
+  #[test]
+  fn test_insert_split_without_grandparent() {
+    let mut trie = Trie {
+      code: "ni".to_string(),
+      words: vec!["你们".to_string()],
+      ..Default::default()
+    };
+    trie.insert("n".to_string(), "你".to_string());
+    assert_eq!("n", trie.code);
+    assert_eq!(vec!["你".to_string()], trie.words);
+    assert_eq!(None, trie.parent);
+    assert_eq!(1, trie.children().count());
+    let child = &trie.links["i"];
+    assert_eq!("i", child.code);
+    assert_eq!(vec!["你们".to_string()], child.words);
+    assert_eq!(&trie as *const _, child.parent().unwrap() as *const _);
+    assert!(child.links.is_empty());
+  }
+
+  #[test]
+  fn test_insert_split_with_grandparent() {
+    let mut root = Trie::default();
+    root.insert("m".to_string(), "没".to_string());
+    root.insert("ni".to_string(), "你们".to_string());
+    root.insert("nia".to_string(), "哪里".to_string());
+    root.insert("n".to_string(), "你".to_string());
+    assert_eq!("", root.code);
+    assert!(root.words.is_empty());
+    assert_eq!(None, root.parent);
+    assert_eq!(2, root.children().count());
+
+    let trie = &root.links["n"];
+    assert_eq!("n", trie.code);
+    assert_eq!(vec!["你".to_string()], trie.words);
+    assert_eq!(&root as *const _, trie.parent().unwrap() as *const _);
+    assert_eq!(1, trie.children().count());
+
+    let child = &trie.links["i"];
+    assert_eq!("i", child.code);
+    assert_eq!(vec!["你们".to_string()], child.words);
+    assert_eq!(trie as *const _, child.parent().unwrap() as *const _);
+    assert_eq!(1, child.children().count());
+
+    let descendant = &child.links["a"];
+    assert_eq!("a", descendant.code);
+    assert_eq!(vec!["哪里".to_string()], descendant.words);
+    assert_eq!(child as *const _, descendant.parent().unwrap() as *const _);
+    assert_eq!(0, descendant.children().count());
   }
 }
