@@ -83,6 +83,10 @@ impl Trie {
     self.links.values()
   }
 
+  fn children_mut(&mut self) -> ValuesMut<'_, Code, Self> {
+    self.links.values_mut()
+  }
+
   pub fn edges(&self) -> Keys<'_, Code, Self> {
     self.links.keys()
   }
@@ -91,16 +95,40 @@ impl Trie {
     Nodes::new(self)
   }
 
-  fn set_link(&mut self, child: Self) -> Option<Self> {
+  pub fn child(&self, child_code: &str) -> Option<&Self> {
+    self.links.get(child_code)
+  }
+
+  pub fn child_mut(&mut self, child_code: &str) -> Option<&mut Self> {
+    self.links.get_mut(child_code)
+  }
+
+  fn set_half_parent_nonnull(&mut self, p_parent: NonNull<Self>) {
+    self.parent.replace(p_parent);
+  }
+
+  fn set_half_parent(&mut self, parent: &Self) {
+    self.set_half_parent_nonnull(NonNull::from(parent));
+  }
+
+  fn set_half_link(&mut self, child: Self) -> Option<Self> {
     self.links.insert(child.code.clone(), child)
   }
 
-  fn del_link(&mut self, key: &Code) -> Option<Self> {
+  unsafe fn set_half_link_and_borrow<'a>(&mut self, child: Self) -> &'a mut Self {
+    let code = child.code.clone();
+    self.set_half_link(child);
+    mem::transmute(self.child_mut(&code).unwrap())
+  }
+
+  fn del_half_link(&mut self, key: &Code) -> Option<Self> {
     self.links.remove(key)
   }
 
-  fn children_mut(&mut self) -> ValuesMut<'_, Code, Self> {
-    self.links.values_mut()
+  fn set_link(&mut self, child: Self) -> &mut Self {
+    let child = unsafe { self.set_half_link_and_borrow(child) };
+    child.set_half_parent(self);
+    child
   }
 }
 
@@ -125,15 +153,12 @@ impl Trie {
     debug_assert!(new_len < self.code.len());
 
     if let Some(parent) = self.parent_mut() {
-      let mut this = parent.del_link(&self.code).unwrap();
+      let mut this = parent.del_half_link(&self.code).unwrap();
 
       this.code.truncate(new_len);
       this.code.shrink_to_fit();
-      let new_code = this.code.clone();
 
-      parent.set_link(this);
-
-      mem::transmute(parent.links.get_mut(&new_code).unwrap())
+      parent.set_half_link_and_borrow(this)
     } else {
       self.code.truncate(new_len);
       self.code.shrink_to_fit();
@@ -152,25 +177,23 @@ impl Trie {
         let child_code = node.code[matched..].to_string();
         let node = unsafe { node.shrink_code(matched) };
         let new_node = Self {
-          code: child_code.clone(),
+          code: child_code,
           words: mem::replace(&mut node.words, vec![word]),
           links: mem::take(&mut node.links),
           parent: None,
         };
-        node.set_link(new_node);
-        let new_node: &mut Self = unsafe { mem::transmute(node.links.get_mut(&child_code).unwrap()) };
-        new_node.parent = Some(NonNull::from(node));
+        let new_node = node.set_link(new_node);
 
         let p_new_node = unsafe { NonNull::new_unchecked(new_node) };
         for child in new_node.children_mut() {
-          child.parent.replace(p_new_node);
+          child.set_half_parent_nonnull(p_new_node);
         }
       }
     } else {
       let code = code.into_remained();
       if matched == node.code.len() {
         let p_node = unsafe { NonNull::new_unchecked(node) };
-        node.set_link(Self {
+        node.set_half_link(Self {
           code,
           words: vec![word],
           parent: Some(p_node),
@@ -195,7 +218,7 @@ impl Trie {
       }
 
       let ch = code[0] as char;
-      let option = node.links.get(&String::from(ch))
+      let option = node.child(&String::from(ch))
         .or(node
           .children()
           .find(|child| child.code.starts_with(ch)));
@@ -219,7 +242,7 @@ impl Trie {
 impl Trie {
   fn check_links(&self) -> Result<(), &Self> {
     for child in self.children() {
-      if child.parent().unwrap() as * const _ != self as * const _ {
+      if child.parent().unwrap() as *const _ != self as *const _ {
         return Err(self);
       }
       child.check_links()?;
@@ -330,7 +353,7 @@ mod test {
     assert_eq!(&root as *const _, trie.parent().unwrap() as *const _);
     assert_eq!(1, trie.children().count());
 
-    let child = &trie.links["i"];
+    let child = trie.child("i").unwrap();
     assert_eq!("i", child.code);
     assert_eq!(vec!["你们".to_string()], child.words);
     assert_eq!(trie as *const _, child.parent().unwrap() as *const _);
