@@ -1,4 +1,6 @@
-use std::fmt::{Debug, Display, Formatter};
+mod fileman;
+
+use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use async_std::{
   io::{BufReader, BufWriter, WriteExt},
