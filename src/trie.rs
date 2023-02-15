@@ -1,8 +1,58 @@
 use std::collections::hash_map::{Keys, Values, ValuesMut};
 use std::collections::HashMap;
-use std::fmt::Write;
+use std::io::Cursor;
+use std::ops::{AddAssign, Index};
 use std::ptr::NonNull;
 use crate::types::{Code, Word};
+
+struct CodeCursor(Cursor<Code>);
+
+impl CodeCursor {
+  pub fn new(code: Code) -> Self {
+    Self(Cursor::new(code))
+  }
+
+  pub fn position(&self) -> usize {
+    self.0.position() as usize
+  }
+
+  pub fn get_ref(&self) -> &Code {
+    self.0.get_ref()
+  }
+
+  pub fn remained_len(&self) -> usize {
+    self.get_ref().len() - self.position()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.remained_len() == 0
+  }
+
+  pub fn advance_by(&mut self, step: usize) {
+    self.0.set_position((self.position() + step) as u64);
+  }
+
+  pub fn into_remained(self) -> Code {
+    let i = self.position();
+    let string = self.0.into_inner();
+    string[i..].to_string()
+  }
+}
+
+impl AddAssign<usize> for CodeCursor {
+  fn add_assign(&mut self, rhs: usize) {
+    self.advance_by(rhs);
+  }
+}
+
+impl Index<usize> for CodeCursor {
+  type Output = u8;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    let pos = self.position();
+    &self.get_ref().as_bytes()[pos + index]
+  }
+}
 
 #[derive(Default)]
 pub struct Trie<'a> {
@@ -43,26 +93,31 @@ impl<'a> Trie<'a> {
 }
 
 impl<'a> Trie<'a> {
-  fn poll(&self, chars: &mut impl Iterator<Item=char>) {
-    let mut char_pairs = chars.zip(self.code.chars());
-    // char_pairs.skip_while()
-    char_pairs.all(|(c1, c2)| c1 == c2);
+  fn poll(&self, code: &mut CodeCursor) -> usize {
+    let mut matched = 0;
+    while let Some(&ch) = self.code.as_bytes().get(matched) {
+      if code.is_empty() || ch != code[0] {
+        break;
+      }
+      matched += 1;
+      *code += 1;
+    }
+    matched
   }
 
   pub fn insert(&mut self, mut node: Trie<'a>) {
-    let descendant = self.try_best_to_match(&mut node.code);
-    descendant.set_link(node);
+    todo!();
   }
 
-  fn try_best_to_match(&mut self, code: &mut String) -> &mut Trie<'_> {
-    let mut chars = code.chars().peekable();
+  fn try_best_to_match(&mut self, code: &mut CodeCursor) -> (&'a mut Trie<'a>, usize) {
     let mut node_ptr = NonNull::from(self);
+    let matched = 0;
 
-    while let Some(&ch) = chars.peek() {
-      let node = unsafe { node_ptr.as_mut() };
-
+    while !code.is_empty() {
+      let ch = code[0] as char;
+      let node = unsafe { node_ptr.as_ref() };
       let option = node
-        .children_mut()
+        .children()
         .find(|child| child.code.starts_with(ch));
 
       if let Some(child) = option {
@@ -71,15 +126,10 @@ impl<'a> Trie<'a> {
         break;
       }
 
-      node.poll(&mut chars);
+      node.poll(code);
     }
 
-    let remained: String = chars.collect();
-    code.truncate(0);
-    code.write_str(&remained).unwrap();
-    code.shrink_to_fit();
-
-    unsafe { node_ptr.as_mut() }
+    unsafe { (node_ptr.as_mut(), matched) }
   }
 
   fn find_a_child_starts_with(&self, ch: char) -> Option<&'_ Trie<'_>> {
@@ -109,5 +159,46 @@ impl<'a> Iterator for Nodes<'a> {
         self.stack.extend(node.children());
         node
       })
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn test_poll_short_code() {
+    let trie = Trie {
+      code: "ni".to_string(),
+      ..Default::default()
+    };
+    let mut code = CodeCursor::new("niao".to_string());
+    let matched = trie.poll(&mut code);
+    assert_eq!(trie.code.len(), matched);
+    assert_eq!("ao".to_string(), code.into_remained());
+  }
+
+  #[test]
+  fn test_poll_long_code() {
+    let trie = Trie {
+      code: "niao".to_string(),
+      ..Default::default()
+    };
+    let mut code = CodeCursor::new("ni".to_string());
+    let matched = trie.poll(&mut code);
+    assert_eq!(2, matched);
+    assert!(code.into_remained().is_empty());
+  }
+
+  #[test]
+  fn test_poll_mismatched_code() {
+    let trie = Trie {
+      code: "niao".to_string(),
+      ..Default::default()
+    };
+    let mut code = CodeCursor::new("nie".to_string());
+    let matched = trie.poll(&mut code);
+    assert_eq!(2, matched);
+    assert_eq!("e".to_string(), code.into_remained());
   }
 }
