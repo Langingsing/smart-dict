@@ -2,38 +2,68 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::mem;
+use crate::trie::Trie;
 use crate::types::{Code, Word};
 
 #[derive(Default)]
-pub struct RevDict {
-  map: HashMap<Word, Code>,
+struct Info<'a> {
+  full_code: Code,
+  node: Option<&'a Trie>,
 }
 
-impl RevDict {
+impl<'a> Info<'a> {
+  fn new(full_code: Code) -> Self {
+    Self { full_code, ..Default::default() }
+  }
+
+  fn from(node: &'a Trie) -> Self {
+    Self {
+      full_code: node.full_code(),
+      node: Some(node),
+    }
+  }
+}
+
+pub struct RevDict<'a> {
+  map: HashMap<Word, Info<'a>>,
+}
+
+impl<'a> RevDict<'a> {
   pub fn new() -> Self {
-    Self::default()
+    Self { map: HashMap::new() }
   }
 
   pub fn from_borrowed(pairs: &[(&str, &str)]) -> Self {
-    Self {
-      map: pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
-    }
+    Self::from_iter(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())))
   }
 
   pub fn get(&self, word: &str) -> Option<&Code> {
-    self.map.get(word)
+    self.map.get(word).map(|info| &info.full_code)
   }
 
   pub fn get_mut(&mut self, word: &str) -> Option<&mut Code> {
-    self.map.get_mut(word)
+    self.map.get_mut(word).map(|info| &mut info.full_code)
   }
 
-  pub fn insert(&mut self, word: Word, code: Code) -> Option<Code> {
-    self.map.insert(word, code)
+  pub fn insert(&mut self, word: Word, node: &'a Trie) {
+    self.map.insert(word, Info::from(node));
+  }
+
+  pub fn insert_if_shorter(&mut self, word: &str, node: &'a Trie) {
+    match self.get_mut(word) {
+      None => {
+        self.insert(word.to_string(), node);
+      }
+      Some(p_code) => {
+        if node.full_code_len() < p_code.len() {
+          *p_code = node.full_code()
+        }
+      }
+    }
   }
 }
 
-impl RevDict {
+impl RevDict<'_> {
   pub fn shortest(&self, sentence: &str) -> Result<Vec<&Code>, String> {
     /*
      * dp[i] = min { dp[j] + self[sentence[j..i]].length } for 0 <= j < i
@@ -96,9 +126,9 @@ impl RevDict {
   }
 }
 
-impl FromIterator<(Code, Word)> for RevDict {
-  fn from_iter<T: IntoIterator<Item=(Code, Word)>>(iter: T) -> Self {
-    Self { map: HashMap::from_iter(iter) }
+impl FromIterator<(Word, Code)> for RevDict<'_> {
+  fn from_iter<T: IntoIterator<Item=(Word, Code)>>(iter: T) -> Self {
+    Self { map: HashMap::from_iter(iter.into_iter().map(|(word, code)| (word, Info::new(code)))) }
   }
 }
 

@@ -65,6 +65,7 @@ mod test {
   const PATH: &str = r"D:\temp.txt";
 
   #[test]
+  #[ignore]
   fn test() {
     remove_lines_sync(
       OpenOptions::new()

@@ -288,16 +288,7 @@ impl Trie {
     let mut rev_dict = RevDict::new();
     for node in self.nodes() {
       for word in &node.words {
-        match rev_dict.get_mut(word) {
-          None => {
-            rev_dict.insert(word.clone(), node.full_code());
-          }
-          Some(p_code) => {
-            if node.full_code_len() < p_code.len() {
-              *p_code = node.full_code()
-            }
-          }
-        }
+        rev_dict.insert_if_shorter(word, node);
       }
     }
     rev_dict
