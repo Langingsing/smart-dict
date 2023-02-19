@@ -6,6 +6,7 @@ use std::fs::File;
 use std::ops::{AddAssign, Index};
 use std::path::Path;
 use std::ptr::NonNull;
+use std::str::FromStr;
 use crate::rev_dict::RevDict;
 use crate::types::{Code, Word};
 
@@ -24,6 +25,11 @@ impl CodeCursor {
     self.0.get_ref()
   }
 
+  pub fn get(&self, index: usize) -> Option<char> {
+    let pos = self.position();
+    self.get_ref().as_bytes().get(pos + index).map(|b| *b as char)
+  }
+
   pub fn remained_len(&self) -> usize {
     self.get_ref().len() - self.position()
   }
@@ -34,6 +40,12 @@ impl CodeCursor {
 
   pub fn advance_by(&mut self, step: usize) {
     self.0.set_position((self.position() + step) as u64);
+  }
+
+  pub fn shift(&mut self) -> u8 {
+    let byte = self[0];
+    self.advance_by(1);
+    byte
   }
 
   pub fn into_remained(self) -> Code {
@@ -287,7 +299,72 @@ impl Trie {
 
 impl Trie {
   pub fn eval(&self, code: &str) -> String {
-    todo!()
+    let mut chars = CodeCursor::new(code.to_string());
+    let mut output = Vec::new();
+    let mut node = self;
+
+    while let Some(peeked) = chars.get(0) {
+      if let Some(child) = node.find_a_child_starts_with(peeked) {
+        node = child;
+      } else {
+        let mut select = 0_usize;
+        let first_word = node.words.get(0).cloned();
+        if peeked == ',' || peeked == '.' {
+          if let Some(first_word) = first_word {
+            output.push(first_word);
+          }
+          output.push(if peeked == ',' { "，" } else { "。" }.to_string());
+          node = self;
+          chars += 1;
+          continue;
+        }
+        if first_word.is_none() {
+          output.push(String::from(chars.shift() as char));
+          node = self;
+          continue;
+        }
+        let first_word = first_word.unwrap();
+        if node.words.len() == 1 && node.is_leaf() { // 唯一时自动上屏
+          output.push(first_word);
+          node = self;
+          continue;
+        }
+        match peeked {
+          ' ' => {} // 空格选重
+          '\'' => // 次选
+            select = 1,
+          '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => // 数字键选重
+            select = peeked as usize - b'0' as usize - 1, // -1 将peek转化为candidates数组下标
+          _ => {
+            output.push(first_word);
+            node = self;
+            continue;
+          }
+        }
+
+        if node as *const _ == self as *const _ { // 没有选单
+          output.push(chars.shift().to_string());
+        } else { // 有选单
+          let mut candidates = node.words.clone();
+          for child in node.children() {
+            candidates.extend(child.words.iter().cloned());
+          }
+
+          if select >= candidates.len() {
+            output.push(first_word);
+            output.push(peeked.to_string());
+          } else {
+            output.push(candidates[select].clone());
+          }
+
+          chars.shift();
+          node = self;
+        }
+      }
+      node.poll(&mut chars);
+    }
+    output.push(node.words.get(0).cloned().unwrap_or_default());
+    output.join("")
   }
 
   pub fn rev_dict(&self) -> RevDict {
