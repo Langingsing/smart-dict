@@ -4,6 +4,7 @@ use std::io::Cursor;
 use std::mem;
 use std::ops::{AddAssign, Index};
 use std::ptr::NonNull;
+use crate::rev_dict::RevDict;
 use crate::types::{Code, Word};
 
 struct CodeCursor(Cursor<Code>);
@@ -277,14 +278,14 @@ impl Trie {
     unsafe { (node_ptr.as_mut(), matched) }
   }
 
-  fn find_a_child_starts_with(&self, ch: char) -> Option<&'_ Self> {
+  fn find_a_child_starts_with(&self, ch: char) -> Option<&Self> {
     self.children().find(|child| child.code.starts_with(ch))
   }
 }
 
 impl Trie {
-  pub fn build_rev_dict(&self) -> HashMap<Word, Code> {
-    let mut rev_dict = HashMap::new();
+  pub fn rev_dict(&self) -> RevDict {
+    let mut rev_dict = RevDict::new();
     for node in self.nodes() {
       for word in &node.words {
         match rev_dict.get_mut(word) {

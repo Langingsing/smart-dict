@@ -1,3 +1,3 @@
 mod types;
 mod trie;
-mod analyse;
+mod rev_dict;
