@@ -87,12 +87,24 @@ impl Trie {
     self.links.values_mut()
   }
 
+  pub fn is_root(&self) -> bool {
+    self.parent.is_none()
+  }
+
+  pub fn is_leaf(&self) -> bool {
+    self.links.is_empty()
+  }
+
   pub fn edges(&self) -> Keys<'_, Code, Self> {
     self.links.keys()
   }
 
   pub fn nodes(&self) -> Nodes<'_> {
     Nodes::new(self)
+  }
+
+  pub fn bubble(&self) -> Bubble<'_> {
+    Bubble::new(self)
   }
 
   pub fn child(&self, child_code: &str) -> Option<&Self> {
@@ -133,6 +145,15 @@ impl Trie {
 }
 
 impl Trie {
+  pub fn full_code_len(&self) -> usize {
+    self.bubble().map(|node| node.code.len()).sum()
+  }
+
+  pub fn full_code(&self) -> String {
+    let codes: Vec<_> = self.bubble().map(|node| &node.code[..]).collect();
+    codes.into_iter().rev().collect()
+  }
+
   fn poll(&self, code: &mut CodeCursor) -> usize {
     let mut matched = 0;
     while let Some(&ch) = self.code.as_bytes().get(matched) {
@@ -262,18 +283,17 @@ impl Trie {
 }
 
 impl Trie {
-  pub fn build_rev_dict(&self) -> HashMap<Word, &Code> {
+  pub fn build_rev_dict(&self) -> HashMap<Word, Code> {
     let mut rev_dict = HashMap::new();
     for node in self.nodes() {
-      let Trie { code, words, .. } = node;
-      for word in words {
+      for word in &node.words {
         match rev_dict.get_mut(word) {
           None => {
-            rev_dict.insert(word.clone(), code);
+            rev_dict.insert(word.clone(), node.full_code());
           }
           Some(p_code) => {
-            if code.len() < p_code.len() {
-              *p_code = code
+            if node.full_code_len() < p_code.len() {
+              *p_code = node.full_code()
             }
           }
         }
@@ -293,6 +313,26 @@ impl Trie {
       child.check_links()?;
     }
     Ok(())
+  }
+}
+
+pub struct Bubble<'a> {
+  node: Option<&'a Trie>,
+}
+
+impl<'a> Bubble<'a> {
+  pub fn new(leaf: &'a Trie) -> Self {
+    Self { node: Some(leaf) }
+  }
+}
+
+impl<'a> Iterator for Bubble<'a> {
+  type Item = &'a Trie;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    let node = self.node?;
+    self.node = node.parent();
+    Some(node)
   }
 }
 
