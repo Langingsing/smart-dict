@@ -190,17 +190,40 @@ impl Trie {
         }
       }
     } else {
-      let code = code.into_remained();
+      let remained_code = code.into_remained();
+
       if matched == node.code.len() {
         let p_node = unsafe { NonNull::new_unchecked(node) };
         node.set_half_link(Self {
-          code,
+          code: remained_code,
           words: vec![word],
           parent: Some(p_node),
           ..Default::default()
         });
       } else {
-        todo!()
+        // regard node as the new parent and construct two new children
+        let child_code = node.code[matched..].to_string();
+        let node = unsafe { node.shrink_code(matched) };
+        let spawn_child = Self {
+          code: child_code,
+          words: mem::take(&mut node.words),
+          links: mem::take(&mut node.links),
+          parent: None,
+        };
+        let spawn_child = node.set_link(spawn_child);
+
+        let p_spawn_child = unsafe { NonNull::new_unchecked(spawn_child) };
+        for grandchild in spawn_child.children_mut() {
+          grandchild.set_half_parent_nonnull(p_spawn_child);
+        }
+
+        let new_child = Self {
+          code: remained_code,
+          words: vec![word],
+          parent: None,
+          ..Default::default()
+        };
+        node.set_link(new_child);
       }
     }
   }
@@ -331,7 +354,7 @@ mod test {
     let child = &trie.links["i"];
     assert_eq!("i", child.code);
     assert_eq!(vec!["你们".to_string()], child.words);
-    assert_eq!(&trie as *const _, child.parent().unwrap() as *const _);
+    assert_eq!(&trie as * const _, child.parent().unwrap() as * const _);
     assert!(child.links.is_empty());
   }
 
@@ -347,23 +370,54 @@ mod test {
     assert_eq!(None, root.parent);
     assert_eq!(2, root.children().count());
 
-    let trie = &root.links["n"];
+    let trie = root.child("n").unwrap();
     assert_eq!("n", trie.code);
     assert_eq!(vec!["你".to_string()], trie.words);
-    assert_eq!(&root as *const _, trie.parent().unwrap() as *const _);
+    assert_eq!(&root as * const _, trie.parent().unwrap() as * const _);
     assert_eq!(1, trie.children().count());
 
     let child = trie.child("i").unwrap();
     assert_eq!("i", child.code);
     assert_eq!(vec!["你们".to_string()], child.words);
-    assert_eq!(trie as *const _, child.parent().unwrap() as *const _);
+    assert_eq!(trie as * const _, child.parent().unwrap() as * const _);
     assert_eq!(1, child.children().count());
 
     let descendant = &child.links["a"];
     assert_eq!("a", descendant.code);
     assert_eq!(vec!["哪里".to_string()], descendant.words);
-    assert_eq!(child as *const _, descendant.parent().unwrap() as *const _);
+    assert_eq!(child as * const _, descendant.parent().unwrap() as * const _);
     assert_eq!(0, descendant.children().count());
+
+    assert!(root.check_links().is_ok());
+  }
+
+  #[test]
+  fn test_insert_with_extraction() {
+    let mut root = Trie::default();
+    root.insert("ni".to_string(), "你们".to_string());
+    root.insert("na".to_string(), "能力".to_string());
+    assert_eq!("", root.code);
+    assert!(root.words.is_empty());
+    assert_eq!(None, root.parent);
+    assert_eq!(1, root.children().count());
+
+    let trie = root.child("n").unwrap();
+    assert_eq!("n", trie.code);
+    assert!(trie.words.is_empty());
+    assert_eq!(&root as *const _, trie.parent().unwrap() as *const _);
+    assert_eq!(2, trie.children().count());
+
+    let child1 = trie.child("i").unwrap();
+    assert_eq!("i", child1.code);
+    assert_eq!(vec!["你们".to_string()], child1.words);
+    assert_eq!(trie as *const _, child1.parent().unwrap() as *const _);
+    assert_eq!(0, child1.children().count());
+
+    let child2 = trie.child("a").unwrap();
+    assert_eq!("a", child2.code);
+    assert_eq!(vec!["能力".to_string()], child2.words);
+    assert_eq!(trie as *const _, child2.parent().unwrap() as *const _);
+    assert_eq!(0, child2.children().count());
 
     assert!(root.check_links().is_ok());
   }
