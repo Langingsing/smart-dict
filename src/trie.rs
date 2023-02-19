@@ -7,6 +7,7 @@ use std::ops::{AddAssign, Index};
 use std::path::Path;
 use std::ptr::NonNull;
 use std::str::FromStr;
+use async_std::io::ReadExt;
 use crate::rev_dict::RevDict;
 use crate::types::{Code, Word};
 
@@ -52,12 +53,6 @@ impl CodeCursor {
     let i = self.position();
     let string = self.0.into_inner();
     string[i..].to_string()
-  }
-}
-
-impl AddAssign<usize> for CodeCursor {
-  fn add_assign(&mut self, rhs: usize) {
-    self.advance_by(rhs);
   }
 }
 
@@ -176,7 +171,7 @@ impl Trie {
         break;
       }
       matched += 1;
-      *code += 1;
+      code.shift();
     }
     matched
   }
@@ -307,17 +302,7 @@ impl Trie {
       if let Some(child) = node.find_a_child_starts_with(peeked) {
         node = child;
       } else {
-        let mut select = 0_usize;
         let first_word = node.words.get(0).cloned();
-        if peeked == ',' || peeked == '.' {
-          if let Some(first_word) = first_word {
-            output.push(first_word);
-          }
-          output.push(if peeked == ',' { "，" } else { "。" }.to_string());
-          node = self;
-          chars += 1;
-          continue;
-        }
         if first_word.is_none() {
           output.push(String::from(chars.shift() as char));
           node = self;
@@ -329,32 +314,33 @@ impl Trie {
           node = self;
           continue;
         }
-        match peeked {
-          ' ' => {} // 空格选重
-          '\'' => // 次选
-            select = 1,
-          '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => // 数字键选重
-            select = peeked as usize - b'0' as usize - 1, // -1 将peek转化为candidates数组下标
+        let select = match peeked {
+          ' ' => 0, // 空格选重
+          '\'' => 1, // 次选
+          '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
+            peeked as usize - b'1' as usize, // 数字键选重
           _ => {
             output.push(first_word);
             node = self;
             continue;
           }
-        }
+        };
 
         if node as *const _ == self as *const _ { // 没有选单
           output.push(chars.shift().to_string());
         } else { // 有选单
-          let mut candidates = node.words.clone();
-          for child in node.children() {
-            candidates.extend(child.words.iter().cloned());
-          }
+          let mut selected = node.words.iter()
+            .chain(node
+              .children()
+              .flat_map(|child| child.words.iter())
+            )
+            .skip(select);
 
-          if select >= candidates.len() {
+          if let Some(selected) = selected.next() {
+            output.push(selected.clone());
+          } else {
             output.push(first_word);
             output.push(peeked.to_string());
-          } else {
-            output.push(candidates[select].clone());
           }
 
           chars.shift();
