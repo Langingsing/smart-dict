@@ -1,8 +1,10 @@
 use std::collections::hash_map::{Keys, Values, ValuesMut};
 use std::collections::HashMap;
-use std::io::Cursor;
-use std::mem;
+use std::io::{BufRead, BufReader, Cursor};
+use std::{io, mem};
+use std::fs::File;
 use std::ops::{AddAssign, Index};
+use std::path::Path;
 use std::ptr::NonNull;
 use crate::rev_dict::RevDict;
 use crate::types::{Code, Word};
@@ -284,6 +286,10 @@ impl Trie {
 }
 
 impl Trie {
+  pub fn eval(&self, code: &str) -> String {
+    todo!()
+  }
+
   pub fn rev_dict(&self) -> RevDict {
     let mut rev_dict = RevDict::new();
     for node in self.nodes() {
@@ -292,6 +298,39 @@ impl Trie {
       }
     }
     rev_dict
+  }
+}
+
+impl Trie {
+  pub fn load_xkjd_dict(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
+    self.extend(BufReader::new(
+      File::open(path)?)
+      .lines()
+      .filter_map(|line| {
+        let mut line = line.unwrap();
+        if let Some(idx) = line.find('#') {
+          line.truncate(idx);
+        }
+        let mut cells = line.split('\t');
+        let word = cells.next().map(String::from)?;
+        let code = cells.next().map(String::from)?;
+
+        Some(Entry { word, code })
+      }));
+    Ok(())
+  }
+}
+
+pub struct Entry {
+  pub code: Code,
+  pub word: Word,
+}
+
+impl Extend<Entry> for Trie {
+  fn extend<T: IntoIterator<Item=Entry>>(&mut self, iter: T) {
+    for Entry { code, word } in iter {
+      self.insert(code, word);
+    }
   }
 }
 
@@ -491,5 +530,15 @@ mod test {
       HashSet::<_>::from_iter(["", "m", "n", "i", "a"].map(|s| s.to_string())),
       HashSet::from_iter(codes.iter().map(|s| s.to_string()))
     );
+  }
+
+  #[test]
+  fn test_load() {
+    let mut trie = Trie::default();
+    let mut path = home::home_dir().unwrap();
+    path.push(r"AppData\Roaming\Rime");
+    path.push("xkjd6.cizu.dict.yaml");
+    trie.load_xkjd_dict(path).unwrap();
+    assert_eq!("我爱读书", trie.eval("wlxhdjej "));
   }
 }
