@@ -261,6 +261,28 @@ impl Trie {
   }
 }
 
+impl Trie {
+  pub fn build_rev_dict(&self) -> HashMap<Word, &Code> {
+    let mut rev_dict = HashMap::new();
+    for node in self.nodes() {
+      let Trie { code, words, .. } = node;
+      for word in words {
+        match rev_dict.get_mut(word) {
+          None => {
+            rev_dict.insert(word.clone(), code);
+          }
+          Some(p_code) => {
+            if code.len() < p_code.len() {
+              *p_code = code
+            }
+          }
+        }
+      }
+    }
+    rev_dict
+  }
+}
+
 #[cfg(test)]
 impl Trie {
   fn check_links(&self) -> Result<(), &Self> {
@@ -301,6 +323,7 @@ impl<'a> Iterator for Nodes<'a> {
 
 #[cfg(test)]
 mod test {
+  use std::collections::HashSet;
   use super::*;
 
   #[test]
@@ -354,7 +377,7 @@ mod test {
     let child = &trie.links["i"];
     assert_eq!("i", child.code);
     assert_eq!(vec!["你们".to_string()], child.words);
-    assert_eq!(&trie as * const _, child.parent().unwrap() as * const _);
+    assert_eq!(&trie as *const _, child.parent().unwrap() as *const _);
     assert!(child.links.is_empty());
   }
 
@@ -373,19 +396,19 @@ mod test {
     let trie = root.child("n").unwrap();
     assert_eq!("n", trie.code);
     assert_eq!(vec!["你".to_string()], trie.words);
-    assert_eq!(&root as * const _, trie.parent().unwrap() as * const _);
+    assert_eq!(&root as *const _, trie.parent().unwrap() as *const _);
     assert_eq!(1, trie.children().count());
 
     let child = trie.child("i").unwrap();
     assert_eq!("i", child.code);
     assert_eq!(vec!["你们".to_string()], child.words);
-    assert_eq!(trie as * const _, child.parent().unwrap() as * const _);
+    assert_eq!(trie as *const _, child.parent().unwrap() as *const _);
     assert_eq!(1, child.children().count());
 
     let descendant = &child.links["a"];
     assert_eq!("a", descendant.code);
     assert_eq!(vec!["哪里".to_string()], descendant.words);
-    assert_eq!(child as * const _, descendant.parent().unwrap() as * const _);
+    assert_eq!(child as *const _, descendant.parent().unwrap() as *const _);
     assert_eq!(0, descendant.children().count());
 
     assert!(root.check_links().is_ok());
@@ -420,5 +443,21 @@ mod test {
     assert_eq!(0, child2.children().count());
 
     assert!(root.check_links().is_ok());
+  }
+
+  #[test]
+  fn test_nodes_iter() {
+    let mut root = Trie::default();
+    root.insert("m".to_string(), "没".to_string());
+    root.insert("ni".to_string(), "你们".to_string());
+    root.insert("nia".to_string(), "哪里".to_string());
+    root.insert("n".to_string(), "你".to_string());
+
+    let codes: Vec<_> = root.nodes().map(|node| &node.code).collect();
+    assert_eq!(5, codes.len());
+    assert_eq!(
+      HashSet::<_>::from_iter(["", "m", "n", "i", "a"].map(|s| s.to_string())),
+      HashSet::from_iter(codes.iter().map(|s| s.to_string()))
+    );
   }
 }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::mem;
 use crate::types::{Code, Word};
 
-pub fn shortest<'a>(sentence: &String, rev_dict: &'a HashMap<Word, Code>) -> Result<Vec<&'a Code>, String> {
+pub fn shortest<'a>(sentence: &String, rev_dict: &'a HashMap<Word, &Code>) -> Result<Vec<&'a Code>, String> {
   /*
    * dp[i] = min { dp[j] + rev_dict[sentence[j..i]].length } for 0 <= j < i
    * */
@@ -70,13 +70,13 @@ mod test {
   #[test]
   fn test() {
     let entries = [
-      ("你", "n "),
-      ("好", "h "),
-      ("吗", "ms "),
-      ("你好", "nau"),
-      ("好吗", "hzms "),
+      ("你", "n ".to_string()),
+      ("好", "h ".to_string()),
+      ("吗", "ms ".to_string()),
+      ("你好", "nau".to_string()),
+      ("好吗", "hzms ".to_string()),
     ];
-    let dict = entries.iter().map(|(s1, s2)| (s1.to_string(), s2.to_string())).collect();
+    let dict = entries.iter().map(|(s1, s2)| (s1.to_string(), s2)).collect();
     let result = shortest(&"你好吗".into(), &dict);
     let ret = result.unwrap();
     assert_eq!(2, ret.len());
