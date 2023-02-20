@@ -151,25 +151,30 @@ mod test {
   fn test_shortest() {
     let mut trie = Trie::new();
     let mut path = home::home_dir().unwrap();
-
     path.push(r"AppData\Roaming\Rime");
+
     path.push("xkjd6.cizu.dict.yaml");
     trie.load_xkjd_dict(&path).unwrap();
 
-    path.pop();
-    path.push("xkjd6.danzi.dict.yaml");
+    path.set_file_name("xkjd6.danzi.dict.yaml");
     trie.load_xkjd_dict(&path).unwrap();
 
-    path.pop();
-    path.push("xkjd6.wxw.dict.yaml");
+    path.set_file_name("xkjd6.wxw.dict.yaml");
     trie.load_xkjd_dict(&path).unwrap();
+
+    trie.insert(",".to_string(), "，".to_string());
+    trie.insert(".".to_string(), "。".to_string());
 
     assert_eq!("我爱读书", trie.eval("wlxhdjej "));
 
     trie.check_links().unwrap();
 
     let dict = trie.rev_dict();
-    let ret = dict.shortest("你好吗").unwrap();
-    assert_eq!(vec!["nau", "ms", " "], ret);
+    assert_eq!(vec!["nau", "ms", " "], dict.shortest("你好吗").unwrap());
+    assert_eq!(vec!["wlxh", "djej", " "], dict.shortest("我爱读书").unwrap());
+    assert_eq!(
+      vec!["qyrn", "hua", ",", "hfjm", "blxv", ",", "qybk", "biu", ",", "blxv", "mfdk", "."],
+      dict.shortest("穷人很多，罕见玻璃心，穷逼不少，玻璃心满地。").unwrap()
+    );
   }
 }
