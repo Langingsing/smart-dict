@@ -127,13 +127,16 @@ impl RevDict<'_> {
 
     // collect
     let mut codes = vec![];
-    let mut node = dp.last().unwrap();
+    let mut state = dp.last().unwrap();
+    if state.node.words().len() > 1 || !state.node.is_leaf() {
+      codes.push(" ".to_string());
+    }
     loop {
-      codes.push(node.code.clone());
-      if node.prev == 0 {
+      codes.push(state.code.clone());
+      if state.prev == 0 {
         break;
       }
-      node = &dp[node.prev];
+      state = &dp[state.prev];
     }
     codes.reverse();
     Ok(codes)
@@ -144,20 +147,29 @@ impl RevDict<'_> {
 mod test {
   use super::*;
 
-  /*  #[test]
-    fn test_shortest() {
-      let dict = RevDict::from_borrowed(&[
-        ("你", "n "),
-        ("好", "h "),
-        ("吗", "ms "),
-        ("你好", "nau"),
-        ("好吗", "hzms "),
-      ]);
-      let result = dict.shortest("你好吗");
-      let ret = result.unwrap();
-      assert_eq!(2, ret.len());
-      assert_eq!("nau", ret[0]);
-      assert_eq!("ms ", ret[1]);
-    }
-  */
+  #[test]
+  fn test_shortest() {
+    let mut trie = Trie::new();
+    let mut path = home::home_dir().unwrap();
+
+    path.push(r"AppData\Roaming\Rime");
+    path.push("xkjd6.cizu.dict.yaml");
+    trie.load_xkjd_dict(&path).unwrap();
+
+    path.pop();
+    path.push("xkjd6.danzi.dict.yaml");
+    trie.load_xkjd_dict(&path).unwrap();
+
+    path.pop();
+    path.push("xkjd6.wxw.dict.yaml");
+    trie.load_xkjd_dict(&path).unwrap();
+
+    assert_eq!("我爱读书", trie.eval("wlxhdjej "));
+
+    trie.check_links().unwrap();
+
+    let dict = trie.rev_dict();
+    let ret = dict.shortest("你好吗").unwrap();
+    assert_eq!(vec!["nau", "ms", " "], ret);
+  }
 }
