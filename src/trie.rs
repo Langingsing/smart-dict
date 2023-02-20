@@ -198,68 +198,70 @@ impl Trie {
   }
 
   pub fn insert(&mut self, code: Code, word: Word) {
-    let mut code = CodeCursor::new(code);
-    let (node, matched) = self.try_best_to_match(&mut code);
-    if code.is_empty() {
-      if matched == node.code.len() {
-        node.words.push(word)
-      } else {
-        // regard node as the new parent and construct a new child
-        let child_code = node.code[matched..].to_string();
-        let node = unsafe { node.shrink_code(matched) };
-        let new_node = Self {
-          code: child_code,
-          words: mem::replace(&mut node.words, vec![word]),
-          links: mem::take(&mut node.links),
-          parent: None,
-        };
-        let new_node = node.set_link(new_node);
+    unsafe {
+      let mut code = CodeCursor::new(code);
+      let (node, matched) = self.try_best_to_match_mut(&mut code);
+      if code.is_empty() {
+        if matched == node.code.len() {
+          node.words.push(word)
+        } else {
+          // regard node as the new parent and construct a new child
+          let child_code = node.code[matched..].to_string();
+          let node = node.shrink_code(matched);
+          let new_node = Self {
+            code: child_code,
+            words: mem::replace(&mut node.words, vec![word]),
+            links: mem::take(&mut node.links),
+            parent: None,
+          };
+          let new_node = node.set_link(new_node);
 
-        let p_new_node = unsafe { NonNull::new_unchecked(new_node) };
-        for child in new_node.children_mut() {
-          child.set_half_parent_nonnull(p_new_node);
+          let p_new_node = NonNull::new_unchecked(new_node);
+          for child in new_node.children_mut() {
+            child.set_half_parent_nonnull(p_new_node);
+          }
         }
-      }
-    } else {
-      let remained_code = code.into_remained();
-
-      if matched == node.code.len() {
-        let p_node = unsafe { NonNull::new_unchecked(node) };
-        node.set_half_link(Self {
-          code: remained_code,
-          words: vec![word],
-          parent: Some(p_node),
-          ..Default::default()
-        });
       } else {
-        // regard node as the new parent and construct two new children
-        let child_code = node.code[matched..].to_string();
-        let node = unsafe { node.shrink_code(matched) };
-        let spawn_child = Self {
-          code: child_code,
-          words: mem::take(&mut node.words),
-          links: mem::take(&mut node.links),
-          parent: None,
-        };
-        let spawn_child = node.set_link(spawn_child);
+        let remained_code = code.into_remained();
 
-        let p_spawn_child = unsafe { NonNull::new_unchecked(spawn_child) };
-        for grandchild in spawn_child.children_mut() {
-          grandchild.set_half_parent_nonnull(p_spawn_child);
+        if matched == node.code.len() {
+          let p_node = NonNull::new_unchecked(node);
+          node.set_half_link(Self {
+            code: remained_code,
+            words: vec![word],
+            parent: Some(p_node),
+            ..Default::default()
+          });
+        } else {
+          // regard node as the new parent and construct two new children
+          let child_code = node.code[matched..].to_string();
+          let node = node.shrink_code(matched);
+          let spawn_child = Self {
+            code: child_code,
+            words: mem::take(&mut node.words),
+            links: mem::take(&mut node.links),
+            parent: None,
+          };
+          let spawn_child = node.set_link(spawn_child);
+
+          let p_spawn_child = NonNull::new_unchecked(spawn_child);
+          for grandchild in spawn_child.children_mut() {
+            grandchild.set_half_parent_nonnull(p_spawn_child);
+          }
+
+          let new_child = Self {
+            code: remained_code,
+            words: vec![word],
+            parent: None,
+            ..Default::default()
+          };
+          node.set_link(new_child);
         }
-
-        let new_child = Self {
-          code: remained_code,
-          words: vec![word],
-          parent: None,
-          ..Default::default()
-        };
-        node.set_link(new_child);
       }
     }
   }
 
-  fn try_best_to_match(&mut self, code: &mut CodeCursor) -> (&mut Self, usize) {
+  fn try_best_to_match(&self, code: &mut CodeCursor) -> (&Self, usize) {
     let mut matched;
     let mut node_ptr = NonNull::from(self);
 
@@ -272,19 +274,24 @@ impl Trie {
       }
 
       let ch = code[0] as char;
-      let option = node.child(&String::from(ch))
+      let child = node.child(&String::from(ch))
         .or(node
           .children()
           .find(|child| child.code.starts_with(ch)));
 
-      if let Some(child) = option {
+      if let Some(child) = child {
         node_ptr = NonNull::from(child);
       } else {
         break;
       }
     }
 
-    unsafe { (node_ptr.as_mut(), matched) }
+    unsafe { (node_ptr.as_ref(), matched) }
+  }
+
+  unsafe fn try_best_to_match_mut(&mut self, code: &mut CodeCursor) -> (&mut Self, usize) {
+    let (node, len) = self.try_best_to_match(code);
+    (NonNull::from(node).as_mut(), len)
   }
 
   fn find_a_child_starts_with(&self, ch: char) -> Option<&Self> {
