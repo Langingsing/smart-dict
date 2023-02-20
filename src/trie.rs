@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Cursor};
 use std::{io, mem};
 use std::fs::File;
-use std::ops::{AddAssign, Index};
+use std::iter::{Chain, FlatMap};
+use std::ops::Index;
 use std::path::Path;
 use std::ptr::NonNull;
-use std::str::FromStr;
-use async_std::io::ReadExt;
+use std::slice::Iter;
 use crate::rev_dict::RevDict;
 use crate::types::{Code, Word};
 
@@ -97,11 +97,11 @@ impl Trie {
     self.parent.map(|mut p| unsafe { p.as_mut() })
   }
 
-  pub fn children(&self) -> Values<'_, Code, Self> {
+  pub fn children(&self) -> Values<Code, Self> {
     self.links.values()
   }
 
-  fn children_mut(&mut self) -> ValuesMut<'_, Code, Self> {
+  fn children_mut(&mut self) -> ValuesMut<Code, Self> {
     self.links.values_mut()
   }
 
@@ -113,15 +113,19 @@ impl Trie {
     self.links.is_empty()
   }
 
-  pub fn edges(&self) -> Keys<'_, Code, Self> {
+  pub fn words(&self) -> &Vec<Word> {
+    &self.words
+  }
+
+  pub fn edges(&self) -> Keys<Code, Self> {
     self.links.keys()
   }
 
-  pub fn nodes(&self) -> Nodes<'_> {
+  pub fn nodes(&self) -> Nodes {
     Nodes::new(self)
   }
 
-  pub fn bubble(&self) -> Bubble<'_> {
+  pub fn bubble(&self) -> Bubble {
     Bubble::new(self)
   }
 
@@ -160,6 +164,12 @@ impl Trie {
     child.set_half_parent(self);
     child
   }
+
+  pub fn is_ancestor_of(&self, other: &Self) -> bool {
+    other.bubble()
+      .find(|&node| node as *const _ == self as *const _)
+      .is_some()
+  }
 }
 
 impl Trie {
@@ -170,6 +180,18 @@ impl Trie {
   pub fn full_code(&self) -> String {
     let codes: Vec<_> = self.bubble().map(|node| &node.code[..]).collect();
     codes.into_iter().rev().collect()
+  }
+
+  pub fn candidates(&self) -> Chain<Iter<Word>, FlatMap<Values<Code, Trie>, Iter<Word>, fn(&Trie) -> Iter<Word>>> {
+    fn words_of_node(node: &Trie) -> Iter<Word> {
+      node.words.iter()
+    }
+
+    let own_words = self.words.iter();
+    let children_words = self
+      .children()
+      .flat_map::<_, fn(&Trie) -> Iter<Word>>(words_of_node);
+    own_words.chain(children_words)
   }
 
   fn poll(&self, code: &mut CodeCursor) -> usize {
@@ -363,12 +385,7 @@ impl Trie {
       if node as *const _ == self as *const _ { // no candidates
         output.push(String::from(code.shift() as char));
       } else {
-        let own_words = node.words.iter();
-        let children_words = node
-          .children()
-          .flat_map(|child| child.words.iter());
-        let mut selected = own_words
-          .chain(children_words)
+        let selected = node.candidates()
           .skip(select)
           .next();
 
@@ -386,7 +403,7 @@ impl Trie {
   }
 
   pub fn rev_dict(&self) -> RevDict {
-    let mut rev_dict = RevDict::new();
+    let mut rev_dict = RevDict::new(self);
     for node in self.nodes() {
       for word in &node.words {
         rev_dict.insert_if_shorter(word, node);
