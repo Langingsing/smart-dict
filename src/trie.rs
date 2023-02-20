@@ -326,17 +326,19 @@ impl Trie {
           }
         };
 
-        if node as *const _ == self as *const _ { // 没有选单
+        if node as *const _ == self as *const _ { // no candidates
           output.push(chars.shift().to_string());
-        } else { // 有选单
-          let mut selected = node.words.iter()
-            .chain(node
-              .children()
-              .flat_map(|child| child.words.iter())
-            )
-            .skip(select);
+        } else {
+          let own_words = node.words.iter();
+          let children_words = node
+            .children()
+            .flat_map(|child| child.words.iter());
+          let mut selected = own_words
+            .chain(children_words)
+            .skip(select)
+            .next();
 
-          if let Some(selected) = selected.next() {
+          if let Some(selected) = selected {
             output.push(selected.clone());
           } else {
             output.push(first_word);
