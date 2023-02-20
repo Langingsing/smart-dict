@@ -82,11 +82,8 @@ pub struct Trie {
 }
 
 impl Trie {
-  pub fn new(code: Code) -> Self {
-    Self {
-      code,
-      ..Default::default()
-    }
+  pub fn new() -> Self {
+    Default::default()
   }
 
   pub fn parent(&self) -> Option<&Self> {
@@ -111,6 +108,10 @@ impl Trie {
 
   pub fn is_leaf(&self) -> bool {
     self.links.is_empty()
+  }
+
+  pub fn code(&self) -> &Code {
+    &self.code
   }
 
   pub fn words(&self) -> &Vec<Word> {
@@ -547,7 +548,7 @@ mod test {
 
   #[test]
   fn test_insert_split_without_grandparent() {
-    let mut root = Trie::default();
+    let mut root = Trie::new();
     root.insert("ni".to_string(), "你们".to_string());
     root.insert("n".to_string(), "你".to_string());
 
@@ -566,7 +567,7 @@ mod test {
 
   #[test]
   fn test_insert_split_with_grandparent() {
-    let mut root = Trie::default();
+    let mut root = Trie::new();
     root.insert("m".to_string(), "没".to_string());
     root.insert("ni".to_string(), "你们".to_string());
     root.insert("nia".to_string(), "哪里".to_string());
@@ -599,7 +600,7 @@ mod test {
 
   #[test]
   fn test_insert_with_extraction() {
-    let mut root = Trie::default();
+    let mut root = Trie::new();
     root.insert("ni".to_string(), "你们".to_string());
     root.insert("na".to_string(), "能力".to_string());
     assert_eq!("", root.code);
@@ -630,7 +631,7 @@ mod test {
 
   #[test]
   fn test_nodes_iter() {
-    let mut root = Trie::default();
+    let mut root = Trie::new();
     root.insert("m".to_string(), "没".to_string());
     root.insert("ni".to_string(), "你们".to_string());
     root.insert("nia".to_string(), "哪里".to_string());
@@ -646,7 +647,7 @@ mod test {
 
   #[test]
   fn test_load() {
-    let mut trie = Trie::default();
+    let mut trie = Trie::new();
     let mut path = home::home_dir().unwrap();
     path.push(r"AppData\Roaming\Rime");
     path.push("xkjd6.cizu.dict.yaml");
