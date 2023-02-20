@@ -2,6 +2,7 @@ use std::collections::hash_map::{Keys, Values, ValuesMut};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Cursor};
 use std::{io, mem};
+use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::iter::{Chain, FlatMap};
 use std::ops::Index;
@@ -147,7 +148,21 @@ impl Trie {
   }
 
   fn set_half_link(&mut self, child: Self) -> Option<Self> {
-    self.links.insert(child.code.clone(), child)
+    let old_cap = self.links.capacity();
+    let ret = self.links.insert(child.code.clone(), child);
+    if self.links.capacity() > old_cap {
+      for child in self.children_mut() {
+        child.refresh_children();
+      }
+    }
+    ret
+  }
+
+  fn refresh_children(&mut self) {
+    let this = unsafe { NonNull::new_unchecked(self) };
+    for child in self.children_mut() {
+      child.set_half_parent_nonnull(this);
+    }
   }
 
   unsafe fn set_half_link_and_borrow<'a>(&mut self, child: Self) -> &'a mut Self {
@@ -413,7 +428,7 @@ impl Trie {
 impl Trie {
   pub fn load_xkjd_dict(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
     self.extend(BufReader::new(
-      File::open(path)?)
+      File::open(path.as_ref())?)
       .lines()
       .filter_map(|line| {
         let mut line = line.unwrap();
@@ -445,14 +460,26 @@ impl Extend<Entry> for Trie {
 
 #[cfg(test)]
 impl Trie {
-  fn check_links(&self) -> Result<(), &Self> {
+  pub(crate) fn check_links(&self) -> Result<(), &Self> {
     for child in self.children() {
       if child.parent().unwrap() as *const _ != self as *const _ {
-        return Err(self);
+        return Err(child);
       }
       child.check_links()?;
     }
     Ok(())
+  }
+}
+
+impl Debug for Trie {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    let parent = self.parent().unwrap();
+    write!(f, r"Trie {{
+    code: {:?},
+    words: {:?},
+    parent.code: {:?},
+    parent.words: {:?},
+}}", self.code(), self.words(), parent.code(), parent.words())
   }
 }
 
@@ -585,7 +612,7 @@ mod test {
     assert_eq!(trie as *const _, child.parent().unwrap() as *const _);
     assert_eq!(1, child.children().count());
 
-    let descendant = &child.links["a"];
+    let descendant = child.child("a").unwrap();
     assert_eq!("a", descendant.code);
     assert_eq!(vec!["哪里".to_string()], descendant.words);
     assert_eq!(child as *const _, descendant.parent().unwrap() as *const _);
