@@ -184,14 +184,10 @@ impl Trie {
   }
 
   pub fn candidates(&self) -> Chain<Iter<Word>, FlatMap<Values<Code, Trie>, Iter<Word>, fn(&Trie) -> Iter<Word>>> {
-    fn words_of_node(node: &Trie) -> Iter<Word> {
-      node.words.iter()
-    }
-
     let own_words = self.words.iter();
     let children_words = self
       .children()
-      .flat_map::<_, fn(&Trie) -> Iter<Word>>(words_of_node);
+      .flat_map::<_, fn(&Trie) -> Iter<Word>>(|node| node.words.iter());
     own_words.chain(children_words)
   }
 
