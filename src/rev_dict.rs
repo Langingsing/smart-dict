@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::mem;
@@ -64,19 +64,19 @@ impl<'a> RevDict<'a> {
 }
 
 impl RevDict<'_> {
-  pub fn shortest(&self, sentence: &str) -> Result<Vec<&Code>, String> {
+  pub fn shortest(&self, sentence: &str) -> Result<Vec<Code>, String> {
     /*
      * dp[i] = min { dp[j] + self[sentence[j..i]].length } for 0 <= j < i
      * */
 
     struct State<'a> {
-      code: &'a String,
+      code: Cow<'a, String>,
       prev: usize,
       sum_len: usize,
     }
 
     let mut dp = vec![State {
-      code: unsafe { mem::transmute(&String::new()) },
+      code: Cow::Owned(String::new()),
       prev: 0,
       sum_len: 0,
     }];
@@ -105,7 +105,7 @@ impl RevDict<'_> {
         }
       }
       if let Some(code) = code {
-        dp.push(State { code, prev, sum_len });
+        dp.push(State { code: Cow::Borrowed(code), prev, sum_len });
       } else {
         return Err(format!("can't generate the sentence from the dictionary, see '{right_char}' at {right_char_index}"));
       }
@@ -115,7 +115,7 @@ impl RevDict<'_> {
     let mut codes = vec![];
     let mut node = dp.last().unwrap();
     loop {
-      codes.push(node.code);
+      codes.push(node.code.to_string());
       if node.prev == 0 {
         break;
       }
