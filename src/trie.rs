@@ -361,7 +361,7 @@ impl Trie {
       };
 
       if node as *const _ == self as *const _ { // no candidates
-        output.push(code.shift().to_string());
+        output.push(String::from(code.shift() as char));
       } else {
         let own_words = node.words.iter();
         let children_words = node
