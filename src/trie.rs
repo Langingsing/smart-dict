@@ -26,12 +26,12 @@ impl CodeCursor {
     self.0.get_ref()
   }
 
-  pub fn get_remaining_ref(&self) -> &str {
+  pub fn remaining(&self) -> &str {
     &self.get_ref()[self.position()..]
   }
 
   pub fn remaining_starts_with(&self, pat: &str) -> bool {
-    self.get_remaining_ref().starts_with(pat)
+    self.remaining().starts_with(pat)
   }
 
   pub fn get_char(&self, index: usize) -> Option<char> {
@@ -269,33 +269,6 @@ impl Trie {
     }
   }
 
-  fn try_best_to_match(&self, code: &mut CodeCursor) -> (&Self, usize) {
-    let mut matched;
-    let mut node = self;
-
-    loop {
-      matched = node.poll(code);
-
-      if code.is_empty() || matched < node.code.len() {
-        break;
-      }
-
-      let ch = code[0] as char;
-      let child = node.child(&String::from(ch))
-        .or(node
-          .children()
-          .find(|child| child.code.starts_with(ch)));
-
-      if let Some(child) = child {
-        node = child;
-      } else {
-        break;
-      }
-    }
-
-    (node, matched)
-  }
-
   fn deepest_full_code(&self, code: &mut CodeCursor) -> &Self {
     let mut node = self;
 
@@ -319,6 +292,26 @@ impl Trie {
     }
 
     node
+  }
+
+  fn try_best_to_match(&self, code: &mut CodeCursor) -> (&Self, usize) {
+    let node = self.deepest_full_code(code);
+    if code.is_empty() {
+      return (node, node.code.len());
+    }
+
+    let ch = &code.remaining()[..1];
+    let child = node.child(ch)
+      .or(node
+        .children()
+        .find(|child| child.code.starts_with(ch))
+      );
+
+    if let Some(child) = child {
+      (child, child.poll(code))
+    } else {
+      (node, node.code.len())
+    }
   }
 
   unsafe fn try_best_to_match_mut(&mut self, code: &mut CodeCursor) -> (&mut Self, usize) {
@@ -537,20 +530,20 @@ mod test {
 
   #[test]
   fn test_insert_split_without_grandparent() {
-    let mut trie = Trie {
-      code: "ni".to_string(),
-      words: vec!["你们".to_string()],
-      ..Default::default()
-    };
-    trie.insert("n".to_string(), "你".to_string());
+    let mut root = Trie::default();
+    root.insert("ni".to_string(), "你们".to_string());
+    root.insert("n".to_string(), "你".to_string());
+
+    let trie = root.child("n").unwrap();
     assert_eq!("n", trie.code);
     assert_eq!(vec!["你".to_string()], trie.words);
-    assert_eq!(None, trie.parent);
+    assert_eq!(&root as *const _, trie.parent().unwrap() as *const _);
     assert_eq!(1, trie.children().count());
-    let child = &trie.links["i"];
+
+    let child = trie.child("i").unwrap();
     assert_eq!("i", child.code);
     assert_eq!(vec!["你们".to_string()], child.words);
-    assert_eq!(&trie as *const _, child.parent().unwrap() as *const _);
+    assert_eq!(trie as *const _, child.parent().unwrap() as *const _);
     assert!(child.links.is_empty());
   }
 
