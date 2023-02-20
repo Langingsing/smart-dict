@@ -263,10 +263,9 @@ impl Trie {
 
   fn try_best_to_match(&self, code: &mut CodeCursor) -> (&Self, usize) {
     let mut matched;
-    let mut node_ptr = NonNull::from(self);
+    let mut node = self;
 
     loop {
-      let node = unsafe { node_ptr.as_ref() };
       matched = node.poll(code);
 
       if code.is_empty() || matched < node.code.len() {
@@ -280,13 +279,13 @@ impl Trie {
           .find(|child| child.code.starts_with(ch)));
 
       if let Some(child) = child {
-        node_ptr = NonNull::from(child);
+        node = child;
       } else {
         break;
       }
     }
 
-    unsafe { (node_ptr.as_ref(), matched) }
+    (node, matched)
   }
 
   unsafe fn try_best_to_match_mut(&mut self, code: &mut CodeCursor) -> (&mut Self, usize) {
