@@ -26,7 +26,15 @@ impl CodeCursor {
     self.0.get_ref()
   }
 
-  pub fn get(&self, index: usize) -> Option<char> {
+  pub fn get_remaining_ref(&self) -> &str {
+    &self.get_ref()[self.position()..]
+  }
+
+  pub fn remaining_starts_with(&self, pat: &str) -> bool {
+    self.get_remaining_ref().starts_with(pat)
+  }
+
+  pub fn get_char(&self, index: usize) -> Option<char> {
     let pos = self.position();
     self.get_ref().as_bytes().get(pos + index).map(|b| *b as char)
   }
@@ -288,6 +296,31 @@ impl Trie {
     (node, matched)
   }
 
+  fn deepest_full_code(&self, code: &mut CodeCursor) -> &Self {
+    let mut node = self;
+
+    loop {
+      let child = node
+        .children()
+        .find(|child| code.remaining_starts_with(&child.code));
+
+      match child {
+        None => break,
+        Some(child) => {
+          node = child;
+
+          code.advance_by(node.code.len());
+
+          if code.is_empty() {
+            break;
+          }
+        }
+      }
+    }
+
+    node
+  }
+
   unsafe fn try_best_to_match_mut(&mut self, code: &mut CodeCursor) -> (&mut Self, usize) {
     let (node, len) = self.try_best_to_match(code);
     (NonNull::from(node).as_mut(), len)
@@ -300,64 +333,62 @@ impl Trie {
 
 impl Trie {
   pub fn eval(&self, code: &str) -> String {
-    let mut chars = CodeCursor::new(code.to_string());
+    let mut code = CodeCursor::new(code.to_string());
     let mut output = Vec::new();
-    let mut node = self;
 
-    while let Some(peeked) = chars.get(0) {
-      if let Some(child) = node.find_a_child_starts_with(peeked) {
-        node = child;
-      } else {
-        let first_word = node.words.get(0).cloned();
-        if first_word.is_none() {
-          output.push(String::from(chars.shift() as char));
-          node = self;
-          continue;
+    loop {
+      let node = self.deepest_full_code(&mut code);
+      let first_word = node.words.get(0).cloned();
+      if code.is_empty() {
+        if let Some(word) = first_word {
+          output.push(word);
         }
-        let first_word = first_word.unwrap();
-        if node.words.len() == 1 && node.is_leaf() { // 唯一时自动上屏
-          output.push(first_word);
-          node = self;
-          continue;
-        }
-        let select = match peeked {
-          ' ' => 0, // 空格选重
-          '\'' => 1, // 次选
-          '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
-            peeked as usize - b'1' as usize, // 数字键选重
-          _ => {
-            output.push(first_word);
-            node = self;
-            continue;
-          }
-        };
-
-        if node as *const _ == self as *const _ { // no candidates
-          output.push(chars.shift().to_string());
-        } else {
-          let own_words = node.words.iter();
-          let children_words = node
-            .children()
-            .flat_map(|child| child.words.iter());
-          let mut selected = own_words
-            .chain(children_words)
-            .skip(select)
-            .next();
-
-          if let Some(selected) = selected {
-            output.push(selected.clone());
-          } else {
-            output.push(first_word);
-            output.push(peeked.to_string());
-          }
-
-          chars.shift();
-          node = self;
-        }
+        break;
       }
-      node.poll(&mut chars);
+      let peeked = code[0] as char;
+
+      if first_word.is_none() {
+        output.push(String::from(code.shift() as char));
+        continue;
+      }
+      let first_word = first_word.unwrap();
+      if node.words.len() == 1 && node.is_leaf() { // 唯一时自动上屏
+        output.push(first_word);
+        continue;
+      }
+      let select = match peeked {
+        ' ' => 0, // 空格选重
+        '\'' => 1, // 次选
+        '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
+          peeked as usize - b'1' as usize, // 数字键选重
+        _ => {
+          output.push(first_word);
+          continue;
+        }
+      };
+
+      if node as *const _ == self as *const _ { // no candidates
+        output.push(code.shift().to_string());
+      } else {
+        let own_words = node.words.iter();
+        let children_words = node
+          .children()
+          .flat_map(|child| child.words.iter());
+        let mut selected = own_words
+          .chain(children_words)
+          .skip(select)
+          .next();
+
+        if let Some(selected) = selected {
+          output.push(selected.clone());
+        } else {
+          output.push(first_word);
+          output.push(peeked.to_string());
+        }
+
+        code.shift();
+      }
     }
-    output.push(node.words.get(0).cloned().unwrap_or_default());
     output.join("")
   }
 
