@@ -172,6 +172,7 @@ mod test {
     let dict = trie.rev_dict();
     assert_eq!(vec!["nau", "ms", " "], dict.shortest("你好吗").unwrap());
     assert_eq!(vec!["wlxh", "djej", " "], dict.shortest("我爱读书").unwrap());
+    assert_eq!(vec!["w", " e", " fio", "xa", "nui", "."], dict.shortest("我是非常喜欢你的。").unwrap());
     assert_eq!(
       vec!["qyrn", "hua", ",", "hfjm", "blxv", ",", "qybk", "biu", ",", "blxv", "mfdk", "."],
       dict.shortest("穷人很多，罕见玻璃心，穷逼不少，玻璃心满地。").unwrap()

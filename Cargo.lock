@@ -474,6 +474,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "smart-dict"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "futures",
+ "home",
+ "lazy_static",
+ "regex",
+]
+
+[[package]]
 name = "socket2"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -685,14 +696,3 @@ name = "windows_x86_64_msvc"
 version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40009d85759725a34da6d89a94e63d7bdc50a862acf0dbc7c8e488f1edcb6f5"
-
-[[package]]
-name = "xkjd-rs"
-version = "0.1.0"
-dependencies = [
- "async-std",
- "futures",
- "home",
- "lazy_static",
- "regex",
-]
