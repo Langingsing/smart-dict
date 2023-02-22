@@ -1,3 +1,3 @@
-mod types;
-mod trie;
-mod rev_dict;
+pub mod types;
+pub mod trie;
+pub mod rev_dict;

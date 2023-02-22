@@ -27,26 +27,27 @@ impl<'a> RevDict<'a> {
     Self { map: HashMap::new(), trie }
   }
 
-  fn get(&self, word: &str) -> Option<&Info<'a>> {
+  fn get(&self, word: &str) -> Option<&Info<'_>> {
     self.map.get(word)
   }
 
-  pub fn get_mut(&mut self, word: &str) -> Option<&mut Code> {
-    self.map.get_mut(word).map(|info| &mut info.full_code)
+  fn get_mut(&mut self, word: &str) -> Option<&mut Info<'a>> {
+    self.map.get_mut(word)
   }
 
-  pub fn insert(&mut self, word: Word, node: &'a Trie) {
+  fn insert(&mut self, word: Word, node: &'a Trie) {
     self.map.insert(word, Info::from(node));
   }
 
-  pub fn insert_if_shorter(&mut self, word: &str, node: &'a Trie) {
+  pub(crate) fn insert_if_shorter(&mut self, word: &str, node: &'a Trie) {
     match self.get_mut(word) {
       None => {
         self.insert(word.to_string(), node);
       }
-      Some(p_code) => {
-        if node.full_code_len() < p_code.len() {
-          *p_code = node.full_code()
+      Some(info) => {
+        if node.full_code_len() < info.full_code.len() {
+          info.full_code = node.full_code();
+          info.node = node;
         }
       }
     }
